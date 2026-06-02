@@ -31,7 +31,10 @@ app.use(express.json({ limit: '10mb' }));
 app.use(compression());
 app.use(morgan('dev'));
 
-// Routes
+// Routes — served at root (e.g. api.kotomot.app/projects) since the backend
+// already lives on the `api.` subdomain. `/api` is kept as a backward-compatible
+// alias for the existing frontend proxy and any older clients.
+app.use(routes);
 app.use('/api', routes);
 
 // Health check
