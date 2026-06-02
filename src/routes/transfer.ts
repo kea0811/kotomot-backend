@@ -295,7 +295,14 @@ router.post('/:slug/import/apply', requireAuth, async (req: Request, res: Respon
     }
 
     const existing = await Key.find({ projectId }).lean();
-    const existingByPath = new Map(existing.map((k: any) => [k.keyPath, k]));
+    // Map each keyPath to ALL docs that use it (a path can appear under more than
+    // one namespace), so translations apply to every matching key, not just one.
+    const existingByPath = new Map<string, any[]>();
+    for (const k of existing as any[]) {
+      const arr = existingByPath.get(k.keyPath);
+      if (arr) arr.push(k);
+      else existingByPath.set(k.keyPath, [k]);
+    }
 
     // Ensure a Namespace doc exists for every namespace the import references
     // (keys store the namespace by name, but the namespace list also reads the
@@ -319,10 +326,10 @@ router.post('/:slug/import/apply', requireAuth, async (req: Request, res: Respon
     let skipped = 0;
 
     for (const entry of incoming) {
-      const current = existingByPath.get(entry.keyPath);
+      const matches = existingByPath.get(entry.keyPath);
       const ns = namespace || entry.keyPath.split('.')[0] || 'common';
 
-      if (!current) {
+      if (!matches || matches.length === 0) {
         if (!createMissingKeys) {
           skipped++;
           continue;
@@ -341,23 +348,26 @@ router.post('/:slug/import/apply', requireAuth, async (req: Request, res: Respon
         });
         created++;
       } else {
-        const merged = { ...(current.translations || {}) };
-        let changed = false;
-        for (const [lang, value] of Object.entries(entry.translations)) {
-          const cur = merged[lang];
-          const isConflict = cur != null && cur !== '' && cur !== value;
-          if (isConflict && conflictResolution === 'skip') continue;
-          if (merged[lang] !== value) {
-            merged[lang] = value;
-            changed = true;
+        let entryChanged = false;
+        for (const doc of matches) {
+          const merged = { ...(doc.translations || {}) };
+          let changed = false;
+          for (const [lang, value] of Object.entries(entry.translations)) {
+            const cur = merged[lang];
+            const isConflict = cur != null && cur !== '' && cur !== value;
+            if (isConflict && conflictResolution === 'skip') continue;
+            if (merged[lang] !== value) {
+              merged[lang] = value;
+              changed = true;
+            }
+          }
+          if (changed) {
+            await Key.updateOne({ _id: doc._id }, { $set: { translations: merged } });
+            entryChanged = true;
           }
         }
-        if (changed) {
-          await Key.updateOne({ _id: current._id }, { $set: { translations: merged } });
-          updated++;
-        } else {
-          skipped++;
-        }
+        if (entryChanged) updated++;
+        else skipped++;
       }
     }
 
