@@ -194,6 +194,18 @@ router.post('/', requireAuth, async (req: Request, res: Response) => {
       [{ $set: { publishedTranslations: { $ifNull: ['$translations', {}] } } }]
     );
 
+    // Freeze this release's content as the version snapshot, so an environment
+    // pinned to this version can be served exactly (per-environment versions).
+    const snapKeys = await Key.find({ projectId })
+      .select('keyPath namespaceId publishedTranslations')
+      .lean();
+    version.snapshot = snapKeys.map((k: any) => ({
+      keyPath: k.keyPath,
+      namespaceId: k.namespaceId,
+      translations: k.publishedTranslations || {},
+    }));
+    await version.save();
+
     // Deploy to environment if specified
     if (environmentId) {
       const env = await Environment.findById(environmentId);

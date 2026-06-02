@@ -128,12 +128,24 @@ router.get('/keys', requireAuth, async (req: Request, res: Response, next: NextF
       };
     });
 
+    // Count keys with unreleased changes (draft `translations` differs from the
+    // published set) for the "unpublished changes" indicator.
+    const scope =
+      projectId && accessibleIds.includes(projectId)
+        ? { projectId }
+        : { projectId: { $in: accessibleIds } };
+    const unpublishedCount = await Key.countDocuments({
+      ...scope,
+      $expr: { $ne: ['$translations', '$publishedTranslations'] },
+    });
+
     res.json({
       success: true,
       keys: formattedKeys,
       enabledLanguages,
       projects: projectList,
       total,
+      unpublishedCount,
       limit: paginate ? limit : total,
       offset: paginate ? offset : 0,
     });

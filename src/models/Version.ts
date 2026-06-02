@@ -36,6 +36,9 @@ export interface IVersion extends Document {
   languages: string[];
   reverted_from?: string;
   reverted_to?: string;
+  // Frozen content for this release — what the SDK serves when an environment
+  // is pinned to this version. [{ keyPath, namespaceId, translations }]
+  snapshot?: { keyPath: string; namespaceId: string; translations: Record<string, string> }[];
   createdAt: Date;
   updatedAt: Date;
 }
@@ -87,6 +90,7 @@ const VersionSchema = new Schema<IVersion>(
     languages: [String],
     reverted_from: String,
     reverted_to: String,
+    snapshot: { type: [Schema.Types.Mixed], default: undefined },
   },
   { timestamps: true }
 );

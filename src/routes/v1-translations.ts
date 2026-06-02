@@ -74,36 +74,56 @@ router.get('/', async (req: Request, res: Response) => {
       });
     }
 
-    // Build query
-    const query: any = { projectId: resolvedProjectId };
-
-    // Keys store the namespace by NAME in `namespaceId`, so filter by name directly.
-    if (namespace) {
-      query.namespaceId = namespace as string;
-    }
-
-    // Fetch all keys for this project
-    const keys = await Key.find(query).lean();
-
-    // Build flat translation map: { keyPath: translated text }
+    const localeStr = (locale as string).toLowerCase();
     const translations: Record<string, string> = {};
+    let servedVersion: string | null = null;
 
-    for (const key of keys) {
-      const localeStr = (locale as string).toLowerCase();
-      // Serve the PUBLISHED (released) set — not the editable draft. Dashboard
-      // edits only reach the SDK after a version is released.
-      const translation = (key as any).publishedTranslations?.[localeStr];
-      if (translation !== undefined && translation !== null && translation !== '') {
-        translations[(key as any).keyPath] = translation;
+    // If an environment is specified, serve the version that environment is
+    // pinned to (its frozen snapshot) — so e.g. production can stay on an older
+    // release than staging. Falls back to the latest published set if the env
+    // (or its version's snapshot) isn't found.
+    const environment = req.query.environment as string | undefined;
+    let snapshot: any[] | null = null;
+    if (environment) {
+      const env = await Environment.findOne({
+        projectId: resolvedProjectId,
+        slug: (environment as string).toLowerCase(),
+        isActive: true,
+      });
+      if (env) {
+        const ver = await Version.findOne({ projectId: resolvedProjectId, version_number: env.version });
+        if (ver && Array.isArray((ver as any).snapshot) && (ver as any).snapshot.length) {
+          snapshot = (ver as any).snapshot;
+          servedVersion = env.version;
+        }
       }
     }
 
-    // Get current version for this project
-    const versionConfig = await VersionConfig.findOne({ projectId: resolvedProjectId });
+    if (snapshot) {
+      // Serve the pinned version's frozen content.
+      for (const k of snapshot) {
+        if (namespace && k.namespaceId !== namespace) continue;
+        const v = k.translations?.[localeStr];
+        if (v !== undefined && v !== null && v !== '') translations[k.keyPath] = v;
+      }
+    } else {
+      // Default: the latest PUBLISHED set (not the editable draft).
+      const query: any = { projectId: resolvedProjectId };
+      if (namespace) query.namespaceId = namespace as string; // keys store namespace by name
+      const keys = await Key.find(query).lean();
+      for (const key of keys) {
+        const translation = (key as any).publishedTranslations?.[localeStr];
+        if (translation !== undefined && translation !== null && translation !== '') {
+          translations[(key as any).keyPath] = translation;
+        }
+      }
+      const versionConfig = await VersionConfig.findOne({ projectId: resolvedProjectId });
+      servedVersion = versionConfig?.current_version || null;
+    }
 
     res.json({
       translations,
-      version: versionConfig?.current_version || null,
+      version: servedVersion,
     });
   } catch (error) {
     console.error('Error fetching translations:', error);
