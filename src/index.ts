@@ -9,7 +9,7 @@ const PORT = process.env.PORT || 4000;
 async function start() {
   await connectDB();
   app.listen(PORT, () => {
-    console.log(`Koto Backend listening on port ${PORT}`);
+    console.log(`Kotomot Backend listening on port ${PORT}`);
   });
 }
 

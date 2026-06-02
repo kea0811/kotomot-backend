@@ -1,7 +1,7 @@
 {
-  "name": "koto-backend",
+  "name": "kotomot-backend",
   "version": "1.0.0",
-  "description": "ZeusX Koto Translation Platform - Backend API",
+  "description": "ZeusX Kotomot Translation Platform - Backend API",
   "license": "MIT",
   "main": "dist/index.js",
   "scripts": {

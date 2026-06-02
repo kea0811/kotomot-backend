@@ -282,7 +282,7 @@ router.post('/:id/members', requireAuth, async (req: Request, res: Response) => 
     if (!user) {
       return res.status(404).json({
         success: false,
-        error: 'No account found for that email. They need to sign in to Koto at least once first.',
+        error: 'No account found for that email. They need to sign in to Kotomot at least once first.',
       });
     }
 
