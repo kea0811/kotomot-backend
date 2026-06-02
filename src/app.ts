@@ -9,6 +9,11 @@ import v1TranslationsRouter from './routes/v1-translations';
 
 const app = express();
 
+// Public SDK endpoint (API-key auth) — callable from ANY website (customers
+// embed it on their own domains), so it gets permissive CORS and is mounted
+// BEFORE helmet + the restrictive dashboard CORS so neither blocks it.
+app.use('/v1/translations', cors({ origin: true, methods: ['GET', 'OPTIONS'] }), v1TranslationsRouter);
+
 // Security
 app.use(helmet());
 const allowedOrigins = (process.env.FRONTEND_URL || 'http://localhost:5173').split(',').map(s => s.trim());
@@ -52,9 +57,6 @@ app.get('/health', async (_req, res) => {
     res.status(503).json({ status: 'unhealthy', timestamp: new Date().toISOString() });
   }
 });
-
-// Public SDK endpoint (API key auth handled in route)
-app.use('/v1/translations', v1TranslationsRouter);
 
 // Error handler
 app.use(errorHandler);
