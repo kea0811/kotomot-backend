@@ -1,7 +1,6 @@
 import { Router, Request, Response } from 'express';
 import mongoose from 'mongoose';
 import { Key } from '../models/Key';
-import { Namespace } from '../models/Namespace';
 import Project from '../models/Project';
 import { Environment } from '../models/Environment';
 import { Version, VersionConfig } from '../models/Version';
@@ -78,17 +77,9 @@ router.get('/', async (req: Request, res: Response) => {
     // Build query
     const query: any = { projectId: resolvedProjectId };
 
-    // If namespace is specified, find the namespace ID first
+    // Keys store the namespace by NAME in `namespaceId`, so filter by name directly.
     if (namespace) {
-      const ns = await Namespace.findOne({
-        projectId: resolvedProjectId,
-        name: namespace as string
-      });
-      if (ns) {
-        query.namespaceId = ns._id.toString();
-      } else {
-        return res.json({});
-      }
+      query.namespaceId = namespace as string;
     }
 
     // Fetch all keys for this project
