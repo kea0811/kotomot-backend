@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { requireAuth } from '../middleware/auth';
+import { requireAuthOrApiKey } from '../middleware/api-key-auth';
 import connectDB from '../lib/db';
 import Project from '../models/Project';
 import { Key } from '../models/Key';
@@ -226,7 +227,7 @@ function diffImport(
 }
 
 // POST /:slug/import/preview  { format, content, namespace? }
-router.post('/:slug/import/preview', requireAuth, async (req: Request, res: Response) => {
+router.post('/:slug/import/preview', requireAuthOrApiKey('write:translations'), async (req: Request, res: Response) => {
   try {
     await connectDB();
     const project: any = await resolveProject(String(req.params.slug), req.userId);
@@ -266,7 +267,7 @@ router.post('/:slug/import/preview', requireAuth, async (req: Request, res: Resp
 });
 
 // POST /:slug/import/apply  { format, content, namespace?, conflictResolution, createMissingKeys }
-router.post('/:slug/import/apply', requireAuth, async (req: Request, res: Response) => {
+router.post('/:slug/import/apply', requireAuthOrApiKey('write:translations'), async (req: Request, res: Response) => {
   try {
     await connectDB();
     const project: any = await resolveProject(String(req.params.slug), req.userId);
