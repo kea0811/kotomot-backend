@@ -36,41 +36,92 @@ router.get('/keys', requireAuth, async (req: Request, res: Response, next: NextF
     }));
     const accessibleIds = projectList.map(p => p.id);
 
-    // Build a query scoped to accessible projects (never return all keys globally).
-    let query: Record<string, unknown>;
-    if (projectId && accessibleIds.includes(projectId)) {
-      query = { projectId };
-    } else {
-      query = { projectId: { $in: accessibleIds } };
+    // Filters + pagination are all opt-in. Without `limit` the endpoint returns
+    // the full (filtered) set, so callers that want everything — e.g. the
+    // Translations workspace — keep working unchanged.
+    const search = ((req.query.search as string) || '').trim();
+    const namespace = ((req.query.namespace as string) || '').trim();
+    const status = ((req.query.status as string) || '').trim();
+    const paginate = req.query.limit !== undefined;
+    const limit = Math.min(Math.max(parseInt(String(req.query.limit ?? '50'), 10) || 50, 1), 500);
+    const offset = Math.max(parseInt(String(req.query.offset ?? '0'), 10) || 0, 0);
+
+    // Enabled languages (needed to derive completion + status).
+    const languages = await Language.find({ enabled: true }).sort({ isDefault: -1, name: 1 }).lean();
+    const enabledLanguages = languages.map((l) => ({ code: l.code, name: l.name, flag: l.flag }));
+    const enabledCodes = enabledLanguages.map((l) => l.code);
+    const enabledCount = enabledCodes.length;
+
+    // Base match: always scoped to accessible projects (+ optional project/namespace/search).
+    const match: Record<string, any> =
+      projectId && accessibleIds.includes(projectId)
+        ? { projectId }
+        : { projectId: { $in: accessibleIds } };
+    if (namespace && namespace !== 'all') match.namespaceId = namespace;
+    if (search) {
+      match.$or = [
+        { keyPath: { $regex: search, $options: 'i' } },
+        { description: { $regex: search, $options: 'i' } },
+      ];
     }
 
-    // Fetch keys
-    const keys = await Key.find(query).sort({ keyPath: 1 }).lean();
+    const pipeline: any[] = [
+      { $match: match },
+      {
+        // Count filled translations among ENABLED languages.
+        $addFields: {
+          _filled: {
+            $size: {
+              $filter: {
+                input: { $objectToArray: { $ifNull: ['$translations', {}] } },
+                as: 't',
+                cond: {
+                  $and: [
+                    { $in: ['$$t.k', enabledCodes] },
+                    { $ne: ['$$t.v', ''] },
+                    { $ne: ['$$t.v', null] },
+                  ],
+                },
+              },
+            },
+          },
+        },
+      },
+    ];
 
-    // Fetch enabled languages
-    const languages = await Language.find({ enabled: true }).sort({ isDefault: -1, name: 1 }).lean();
-    const enabledLanguages = languages.map(l => ({
-      code: l.code,
-      name: l.name,
-      flag: l.flag,
-    }));
+    // Status filter (derived from completion).
+    if (status && status !== 'all') {
+      let cond: Record<string, any> | null = null;
+      if (status === 'draft') cond = { _filled: 0 }; // Empty
+      else if (status === 'approved') cond = enabledCount > 0 ? { _filled: { $gte: enabledCount } } : { _id: null }; // Complete
+      else if (status === 'review') cond = enabledCount > 0 ? { _filled: { $gt: 0, $lt: enabledCount } } : { _id: null }; // In progress
+      if (cond) pipeline.push({ $match: cond });
+    }
 
-    // Format keys for the frontend
-    const formattedKeys = keys.map(k => {
-      const translations = (k as any).translations || {};
-      const totalLangs = enabledLanguages.length;
-      const filledLangs = enabledLanguages.filter(l => translations[l.code] && translations[l.code].trim() !== '').length;
-      const completion = totalLangs > 0 ? Math.round((filledLangs / totalLangs) * 100) : 0;
+    pipeline.push({ $sort: { keyPath: 1 } });
+    pipeline.push({
+      $facet: {
+        // An empty sub-pipeline passes all docs through (used when not paginating).
+        data: paginate ? [{ $skip: offset }, { $limit: limit }] : [],
+        total: [{ $count: 'n' }],
+      },
+    });
 
+    const agg = await Key.aggregate(pipeline);
+    const docs: any[] = agg[0]?.data || [];
+    const total: number = agg[0]?.total?.[0]?.n || 0;
+
+    const formattedKeys = docs.map((k) => {
+      const completion = enabledCount > 0 ? Math.round((k._filled / enabledCount) * 100) : 0;
       return {
-        id: (k._id as any).toString(),
+        id: k._id.toString(),
         key: k.keyPath,
-        namespace: (k as any).namespaceId || k.keyPath.split('.')[0],
+        namespace: k.namespaceId || (k.keyPath || '').split('.')[0],
         description: k.description || '',
-        translations,
+        translations: k.translations || {},
         completion,
-        updated_at: (k as any).updatedAt,
-        project: projectList.find(p => p.id === k.projectId),
+        updated_at: k.updatedAt,
+        project: projectList.find((p) => p.id === k.projectId),
       };
     });
 
@@ -79,6 +130,9 @@ router.get('/keys', requireAuth, async (req: Request, res: Response, next: NextF
       keys: formattedKeys,
       enabledLanguages,
       projects: projectList,
+      total,
+      limit: paginate ? limit : total,
+      offset: paginate ? offset : 0,
     });
   } catch (error) {
     console.error('Error fetching translation keys:', error);
