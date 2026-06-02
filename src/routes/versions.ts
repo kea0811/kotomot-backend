@@ -187,6 +187,13 @@ router.post('/', requireAuth, async (req: Request, res: Response) => {
     config.current_version = newVersionNumber;
     await config.save();
 
+    // Release: publish the current draft so the SDK serves it. Copies each key's
+    // editable `translations` into `publishedTranslations` for this project.
+    await Key.updateMany(
+      { projectId },
+      [{ $set: { publishedTranslations: { $ifNull: ['$translations', {}] } } }]
+    );
+
     // Deploy to environment if specified
     if (environmentId) {
       const env = await Environment.findById(environmentId);

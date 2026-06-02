@@ -90,7 +90,9 @@ router.get('/', async (req: Request, res: Response) => {
 
     for (const key of keys) {
       const localeStr = (locale as string).toLowerCase();
-      const translation = (key as any).translations?.[localeStr];
+      // Serve the PUBLISHED (released) set — not the editable draft. Dashboard
+      // edits only reach the SDK after a version is released.
+      const translation = (key as any).publishedTranslations?.[localeStr];
       if (translation !== undefined && translation !== null && translation !== '') {
         translations[(key as any).keyPath] = translation;
       }

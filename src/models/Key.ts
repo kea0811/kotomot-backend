@@ -17,6 +17,7 @@ export interface IKey extends Document {
   variables: IVariable[];
   pluralization: boolean;
   translations: Record<string, string>;
+  publishedTranslations: Record<string, string>;
   createdBy: string;
   createdAt: Date;
   updatedAt: Date;
@@ -40,6 +41,9 @@ const KeySchema = new Schema<IKey>(
     variables: { type: [VariableSchema], default: [] },
     pluralization: { type: Boolean, default: false },
     translations: { type: Schema.Types.Mixed, default: {} },
+    // The released set served to SDKs. `translations` is the editable draft;
+    // releasing a version copies draft -> publishedTranslations.
+    publishedTranslations: { type: Schema.Types.Mixed, default: {} },
     createdBy: { type: String, required: true },
   },
   {
