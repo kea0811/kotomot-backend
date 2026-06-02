@@ -3,6 +3,7 @@ import { requireAuth } from '../middleware/auth';
 import connectDB from '../lib/db';
 import Project from '../models/Project';
 import { Key } from '../models/Key';
+import { Namespace } from '../models/Namespace';
 import Language from '../models/Language';
 import { accessibleProjectOr } from '../lib/projectAccess';
 
@@ -295,6 +296,23 @@ router.post('/:slug/import/apply', requireAuth, async (req: Request, res: Respon
 
     const existing = await Key.find({ projectId }).lean();
     const existingByPath = new Map(existing.map((k: any) => [k.keyPath, k]));
+
+    // Ensure a Namespace doc exists for every namespace the import references
+    // (keys store the namespace by name, but the namespace list also reads the
+    // Namespace collection).
+    const nsNames = new Set<string>();
+    for (const entry of incoming) {
+      nsNames.add(namespace || entry.keyPath.split('.')[0] || 'common');
+    }
+    await Promise.all(
+      Array.from(nsNames).map((name) =>
+        Namespace.updateOne(
+          { projectId, name },
+          { $setOnInsert: { projectId, name } },
+          { upsert: true }
+        )
+      )
+    );
 
     let created = 0;
     let updated = 0;

@@ -26,23 +26,39 @@ router.get('/:slug/namespaces', requireAuth, async (req: Request, res: Response,
 
     const projectId = project._id.toString();
 
-    const namespaces = await Namespace.find({ projectId }).sort({ name: 1 }).lean();
+    // Explicit namespace records. May be empty even when keys exist — e.g.
+    // imported keys carry a `namespaceId` (which IS the namespace name) without
+    // a corresponding Namespace document.
+    const namespaceDocs = await Namespace.find({ projectId }).sort({ name: 1 }).lean();
 
+    // Key counts grouped by namespaceId (== the namespace name).
     const keyCounts = await Key.aggregate([
       { $match: { projectId } },
       { $group: { _id: '$namespaceId', count: { $sum: 1 } } },
     ]);
-
-    const keyCountMap = new Map(
-      keyCounts.map((kc: { _id: string; count: number }) => [kc._id, kc.count])
+    const countByName = new Map<string, number>(
+      keyCounts.map((kc: { _id: string; count: number }) => [String(kc._id), kc.count])
     );
 
-    const namespacesWithCounts = namespaces.map((ns: any) => ({
-      id: ns._id.toString(),
-      name: ns.name,
-      description: ns.description || '',
-      keys: keyCountMap.get(ns._id.toString()) || 0,
-    }));
+    // Build the list keyed by name: explicit docs first (keep their real id +
+    // description), then any namespace that exists only implicitly via keys.
+    const byName = new Map<string, { id: string; name: string; description: string; keys: number }>();
+    for (const ns of namespaceDocs as any[]) {
+      byName.set(ns.name, {
+        id: ns._id.toString(),
+        name: ns.name,
+        description: ns.description || '',
+        keys: countByName.get(ns.name) || 0,
+      });
+    }
+    for (const [name, count] of countByName) {
+      if (!name || byName.has(name)) continue;
+      byName.set(name, { id: name, name, description: '', keys: count });
+    }
+
+    const namespacesWithCounts = Array.from(byName.values()).sort((a, b) =>
+      a.name.localeCompare(b.name)
+    );
 
     res.json({ namespaces: namespacesWithCounts });
   } catch (error) {
