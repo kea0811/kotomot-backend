@@ -13,6 +13,7 @@ import versionsRouter from './versions';
 import integrationsRouter from './integrations';
 import dashboardRouter from './dashboard';
 import activitiesRouter from './activities';
+import settingsRouter from './settings';
 
 const router = Router();
 
@@ -32,6 +33,7 @@ router.use('/versions', versionsRouter);
 router.use('/integrations', integrationsRouter);
 router.use('/dashboard', dashboardRouter);
 router.use('/activities', activitiesRouter);
+router.use('/settings', settingsRouter);
 
 router.get('/ping', (_req, res) => {
   res.json({ success: true, message: 'pong' });

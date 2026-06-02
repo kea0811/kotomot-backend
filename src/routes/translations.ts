@@ -8,6 +8,16 @@ import { accessibleProjectOr } from '../lib/projectAccess';
 
 const router = Router();
 
+// POST /ai-suggest — AI translation suggestions. No AI provider is configured,
+// so this returns a clear "not configured" error; the UI catches it and shows a
+// "configure an AI provider in Settings" hint rather than breaking.
+router.post('/ai-suggest', requireAuth, (_req: Request, res: Response) => {
+  res.status(501).json({
+    success: false,
+    error: 'AI translation is not configured. Configure an AI provider in Settings.',
+  });
+});
+
 // GET /keys — list translation keys
 router.get('/keys', requireAuth, async (req: Request, res: Response, next: NextFunction) => {
   try {
