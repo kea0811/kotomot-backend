@@ -4,7 +4,7 @@ import { Key } from '../models/Key';
 import { Namespace } from '../models/Namespace';
 import Project from '../models/Project';
 import { Environment } from '../models/Environment';
-import { VersionConfig } from '../models/Version';
+import { Version, VersionConfig } from '../models/Version';
 import { validateApiKey } from '../utils/api-key';
 
 const router = Router();
@@ -64,11 +64,14 @@ router.get('/', async (req: Request, res: Response) => {
       return res.status(403).json({ error: 'API key not authorized for this project' });
     }
 
-    // Check if the project has at least one active version/environment
-    const hasVersion = await Environment.exists({ projectId: resolvedProjectId, isActive: true });
-    if (!hasVersion) {
+    // Gate: the project must have been "published" — satisfied by EITHER an
+    // active environment OR at least one version (the "Create Version" action).
+    const published =
+      (await Environment.exists({ projectId: resolvedProjectId, isActive: true })) ||
+      (await Version.exists({ projectId: resolvedProjectId }));
+    if (!published) {
       return res.status(403).json({
-        error: 'No active version found for this project. Please create a version before accessing translations.'
+        error: 'This project has no published version yet. Create a version (or an active environment) before accessing translations.'
       });
     }
 
