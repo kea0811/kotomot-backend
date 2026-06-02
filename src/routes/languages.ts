@@ -3,6 +3,7 @@ import { requireAuth } from '../middleware/auth';
 import connectDB from '../lib/db';
 import Language from '../models/Language';
 import Project from '../models/Project';
+import { getProjectActiveLanguages } from '../lib/projectLanguages';
 
 const router = Router();
 
@@ -55,24 +56,26 @@ const LANGUAGE_DATA: Record<string, { name: string; nativeName: string; flag: st
 router.patch('/', requireAuth, async (req: Request, res: Response, next: NextFunction) => {
   try {
     await connectDB();
-    const { projectId, languages, action } = req.body;
+    const { projectId, languages } = req.body;
 
     if (!Array.isArray(languages) || !languages.length) {
       return res.status(400).json({ success: false, error: 'languages must be a non-empty array' });
     }
 
-    // Ensure all Language documents exist, upsert if needed
+    // Ensure the Language catalog docs exist (metadata only). Do NOT change the
+    // global `enabled` flag here — per-project activation lives on the project,
+    // so managing one project's languages never affects another.
     const languageDocs = [];
     for (const code of languages) {
       const normalizedCode = code.toLowerCase();
       const meta = LANGUAGE_DATA[normalizedCode];
-      const upsertData = meta
-        ? { enabled: true, ...meta }
-        : { enabled: true, name: code, nativeName: code, flag: '', direction: 'ltr' as const };
+      const setData = meta
+        ? { ...meta }
+        : { name: code, nativeName: code, flag: '', direction: 'ltr' as const };
 
       const lang = await Language.findOneAndUpdate(
         { code: normalizedCode },
-        { $set: upsertData },
+        { $set: setData, $setOnInsert: { enabled: false } },
         { upsert: true, new: true }
       );
       languageDocs.push(lang);
@@ -95,16 +98,9 @@ router.patch('/', requireAuth, async (req: Request, res: Response, next: NextFun
       await project.save();
     }
 
-    // Mark the selected languages as the enabled (active) set. Note this is a
-    // global flag in the current model; the full pick-from catalog is served
-    // separately via GET /?catalog=true, so this no longer shrinks the picker.
-    const enabledIds = languageDocs.map((l) => l._id);
-    if (action === 'enable') {
-      await Language.updateMany(
-        { _id: { $nin: enabledIds } },
-        { $set: { enabled: false } }
-      );
-    }
+    // The active set is stored per-project (above). The global `enabled` flag is
+    // intentionally left untouched so changing one project's languages never
+    // affects others.
 
     res.json({ success: true, languages: languageDocs });
   } catch (error) {
@@ -123,10 +119,9 @@ router.get('/', requireAuth, async (req: Request, res: Response, next: NextFunct
     const wantCatalog = req.query.catalog === 'true';
 
     if (!wantCatalog) {
-      const limit = parseInt((req.query.limit as string) || '100', 10);
-      const languages = await Language.find({ enabled: true })
-        .sort({ isDefault: -1, name: 1 })
-        .limit(limit);
+      // A project's active languages (its own list, or the global set as fallback).
+      const projectId = req.query.projectId as string | undefined;
+      const languages = await getProjectActiveLanguages(projectId);
       return res.json({ success: true, languages });
     }
 

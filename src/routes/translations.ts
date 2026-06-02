@@ -3,6 +3,7 @@ import { requireAuth } from '../middleware/auth';
 import connectDB from '../lib/db';
 import { Key } from '../models/Key';
 import Language from '../models/Language';
+import { getProjectActiveLanguages } from '../lib/projectLanguages';
 import Project from '../models/Project';
 import { accessibleProjectOr } from '../lib/projectAccess';
 
@@ -47,8 +48,10 @@ router.get('/keys', requireAuth, async (req: Request, res: Response, next: NextF
     const offset = Math.max(parseInt(String(req.query.offset ?? '0'), 10) || 0, 0);
 
     // Enabled languages (needed to derive completion + status).
-    const languages = await Language.find({ enabled: true }).sort({ isDefault: -1, name: 1 }).lean();
-    const enabledLanguages = languages.map((l) => ({ code: l.code, name: l.name, flag: l.flag }));
+    // Active languages for THIS project (its own list, or the global set as fallback).
+    const langProjectId = projectId && accessibleIds.includes(projectId) ? projectId : undefined;
+    const languages = await getProjectActiveLanguages(langProjectId);
+    const enabledLanguages = languages.map((l: any) => ({ code: l.code, name: l.name, flag: l.flag }));
     const enabledCodes = enabledLanguages.map((l) => l.code);
     const enabledCount = enabledCodes.length;
 
