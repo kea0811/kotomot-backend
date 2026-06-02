@@ -12,6 +12,65 @@ import { teamAccessibleProjectIds } from '../lib/projectAccess';
 
 const router = Router();
 
+type ProjectStat = { keys: number; locales: number; completion: number };
+
+/**
+ * Compute real per-project stats from the keys collection (the Project.stats
+ * field is not kept in sync by imports/edits). Returns a map keyed by projectId.
+ * - keys: number of translation keys
+ * - locales: distinct languages that have at least one non-empty value
+ * - completion: filled values / (keys × locales), as a percentage
+ */
+async function computeProjectStats(projectIds: string[]): Promise<Map<string, ProjectStat>> {
+  const map = new Map<string, ProjectStat>();
+  if (projectIds.length === 0) return map;
+
+  try {
+  const agg = await Key.aggregate([
+    { $match: { projectId: { $in: projectIds } } },
+    { $project: { projectId: 1, kv: { $objectToArray: { $ifNull: ['$translations', {}] } } } },
+    {
+      $project: {
+        projectId: 1,
+        langs: {
+          $map: {
+            input: {
+              $filter: {
+                input: '$kv',
+                as: 't',
+                cond: { $and: [{ $ne: ['$$t.v', ''] }, { $ne: ['$$t.v', null] }] },
+              },
+            },
+            as: 'x',
+            in: '$$x.k',
+          },
+        },
+      },
+    },
+    {
+      $group: {
+        _id: '$projectId',
+        keys: { $sum: 1 },
+        filled: { $sum: { $size: '$langs' } },
+        localeSets: { $addToSet: '$langs' },
+      },
+    },
+  ]);
+
+  for (const a of agg as any[]) {
+    const locales = new Set<string>();
+    (a.localeSets || []).forEach((arr: string[]) => (arr || []).forEach((l) => locales.add(l)));
+    const localeCount = locales.size;
+    const completion =
+      a.keys > 0 && localeCount > 0 ? Math.round((a.filled / (a.keys * localeCount)) * 100) : 0;
+    map.set(a._id, { keys: a.keys, locales: localeCount, completion });
+  }
+  } catch (err) {
+    console.error('computeProjectStats failed:', err);
+  }
+  return map;
+}
+
 // GET / — list projects for authenticated user (supports session auth or API key)
 router.get('/', requireAuthOrApiKey('read:projects'), async (req: Request, res: Response, next: NextFunction) => {
   try {
@@ -23,8 +82,15 @@ router.get('/', requireAuthOrApiKey('read:projects'), async (req: Request, res: 
         { 'members.user': req.userId },
         { _id: { $in: teamProjectIds } },
       ]
-    }).sort({ updatedAt: -1 });
-    res.json({ success: true, projects });
+    }).sort({ updatedAt: -1 }).lean();
+
+    const statsMap = await computeProjectStats(projects.map((p: any) => p._id.toString()));
+    const withStats = projects.map((p: any) => ({
+      ...p,
+      _id: p._id.toString(),
+      stats: statsMap.get(p._id.toString()) || { keys: 0, locales: 0, completion: 0 },
+    }));
+    res.json({ success: true, projects: withStats });
   } catch (error) {
     console.error('Error fetching projects:', error);
     res.json({ success: true, projects: [] });
@@ -81,10 +147,11 @@ router.get('/:slug', requireAuth, async (req: Request, res: Response, next: Next
 
     const projectId = project._id.toString();
 
-    const [totalKeys, totalNamespaces] = await Promise.all([
-      Key.countDocuments({ projectId }),
+    const [statsMap, totalNamespaces] = await Promise.all([
+      computeProjectStats([projectId]),
       Namespace.countDocuments({ projectId }),
     ]);
+    const s = statsMap.get(projectId) || { keys: 0, locales: 0, completion: 0 };
 
     res.json({
       project: {
@@ -92,9 +159,10 @@ router.get('/:slug', requireAuth, async (req: Request, res: Response, next: Next
         _id: projectId,
         is_owner: project.owner === req.userId,
         computedStats: {
-          totalKeys,
+          totalKeys: s.keys,
           totalNamespaces,
-          completionRate: 0,
+          completionRate: s.completion,
+          locales: s.locales,
           memberCount: project.members?.length || 0,
         },
       },
