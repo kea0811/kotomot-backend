@@ -55,21 +55,35 @@ router.get('/', async (req: Request, res: Response) => {
     }
 
     // The project's active languages (its own list, or the global set as a
-    // fallback), already sorted default-first then by name.
+    // fallback).
     const langs = await getProjectActiveLanguages(resolvedProjectId);
-    const locales = langs.map((l: any) => ({
+    let locales = langs.map((l: any) => ({
       code: l.code,
       name: l.name,
       nativeName: l.nativeName,
       flag: l.flag,
       direction: l.direction || 'ltr',
-      isDefault: !!l.isDefault,
+      isDefault: false,
     }));
-    const def = locales.find((l) => l.isDefault) || locales[0] || null;
+
+    // Source/default locale: English is the enforced source language, so prefer
+    // 'en'; otherwise the globally-flagged default, otherwise the first locale.
+    const sourceCode =
+      (locales.find((l) => l.code === 'en') && 'en') ||
+      langs.find((l: any) => l.isDefault)?.code ||
+      locales[0]?.code ||
+      null;
+
+    // Mark the source and surface it first (handy for a language picker).
+    locales = locales
+      .map((l) => ({ ...l, isDefault: l.code === sourceCode }))
+      .sort((a, b) =>
+        a.code === sourceCode ? -1 : b.code === sourceCode ? 1 : a.name.localeCompare(b.name)
+      );
 
     res.json({
       projectId: projectIdParam,
-      defaultLocale: def ? def.code : null,
+      defaultLocale: sourceCode,
       locales,
     });
   } catch (error) {
