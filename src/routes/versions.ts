@@ -1,5 +1,7 @@
 import { Router, Request, Response } from 'express';
+import mongoose from 'mongoose';
 import { requireAuth } from '../middleware/auth';
+import { requireAuthOrApiKey } from '../middleware/api-key-auth';
 import { Version, VersionConfig } from '../models/Version';
 import { Key } from '../models/Key';
 import { Environment } from '../models/Environment';
@@ -92,12 +94,22 @@ router.get('/', requireAuth, async (req: Request, res: Response) => {
  * POST /api/versions
  * Create a new version or revert to a previous version
  */
-router.post('/', requireAuth, async (req: Request, res: Response) => {
+router.post('/', requireAuthOrApiKey('write:translations'), async (req: Request, res: Response) => {
   try {
-    const { projectId, targetVersion, versionType = 'patch', environmentId } = req.body;
+    const { targetVersion, versionType = 'patch', environmentId } = req.body;
+    let projectId = req.body.projectId as string;
 
     if (!projectId) {
       return res.status(400).json({ error: 'Missing required field: projectId' });
+    }
+
+    // Accept a slug or an ObjectId, so API-key callers can use the project slug.
+    if (!mongoose.Types.ObjectId.isValid(projectId)) {
+      const proj = await Project.findOne({ slug: projectId });
+      if (!proj) {
+        return res.status(404).json({ error: 'Project not found' });
+      }
+      projectId = (proj._id as any).toString();
     }
 
     // Get or create config
@@ -126,7 +138,7 @@ router.post('/', requireAuth, async (req: Request, res: Response) => {
         is_current: true,
         created_by: {
           user_id: req.userId || '',
-          user_name: req.user?.email || '',
+          user_name: req.user?.email || 'API key',
           team_id: '',
           team_name: '',
         },
@@ -137,7 +149,7 @@ router.post('/', requireAuth, async (req: Request, res: Response) => {
           new_value: targetVersion,
           changed_by: {
             user_id: req.userId || '',
-            user_name: req.user?.email || '',
+            user_name: req.user?.email || 'API key',
           },
           timestamp: new Date(),
         }],
@@ -174,7 +186,7 @@ router.post('/', requireAuth, async (req: Request, res: Response) => {
       is_current: true,
       created_by: {
         user_id: req.userId || '',
-        user_name: req.user?.email || '',
+        user_name: req.user?.email || 'API key',
         team_id: '',
         team_name: '',
       },
