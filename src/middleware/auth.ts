@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { supabase } from '../lib/supabase';
 import { syncUserToMongoDB } from './sync-user';
+import { isDemoToken, applyDemoUser } from '../lib/demoAuth';
 
 // Extend Express Request to include auth properties
 declare global {
@@ -38,6 +39,13 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
         error: 'Authentication required',
         message: 'Bearer token is empty'
       });
+      return;
+    }
+
+    // Demo session: a `demo_<uuid>` token maps to an isolated demo identity.
+    if (isDemoToken(token)) {
+      applyDemoUser(req, token);
+      next();
       return;
     }
 
@@ -94,6 +102,13 @@ export async function optionalAuth(req: Request, res: Response, next: NextFuncti
     if (!token) {
       req.userId = undefined;
       req.user = undefined;
+      next();
+      return;
+    }
+
+    // Demo session token.
+    if (isDemoToken(token)) {
+      applyDemoUser(req, token);
       next();
       return;
     }

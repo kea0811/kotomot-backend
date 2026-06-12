@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import { supabase } from '../lib/supabase';
 import { validateApiKey, hasPermission } from '../utils/api-key';
 import { ApiKeyPermission } from '../types/api-key';
+import { isDemoToken, applyDemoUser } from '../lib/demoAuth';
 
 /**
  * Express middleware that supports both session auth and API key auth.
@@ -18,6 +19,11 @@ export function requireAuthOrApiKey(requiredPermission?: ApiKeyPermission) {
         const token = authHeader.split(' ')[1];
 
         if (token) {
+          if (isDemoToken(token)) {
+            applyDemoUser(req, token);
+            next();
+            return;
+          }
           const { data: { user }, error } = await supabase.auth.getUser(token);
 
           if (!error && user) {
