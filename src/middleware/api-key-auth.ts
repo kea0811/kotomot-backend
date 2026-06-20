@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
-import { supabase } from '../lib/supabase';
+import { verifyBearerUser } from '../lib/keyring';
+import { syncUserToMongoDB } from './sync-user';
 import { validateApiKey, hasPermission } from '../utils/api-key';
 import { ApiKeyPermission } from '../types/api-key';
 import { isDemoToken, applyDemoUser } from '../lib/demoAuth';
@@ -24,9 +25,10 @@ export function requireAuthOrApiKey(requiredPermission?: ApiKeyPermission) {
             next();
             return;
           }
-          const { data: { user }, error } = await supabase.auth.getUser(token);
+          const user = await verifyBearerUser(token);
 
-          if (!error && user) {
+          if (user) {
+            await syncUserToMongoDB(user);
             req.userId = user.id;
             req.user = user;
             next();

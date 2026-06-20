@@ -1,5 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
-import { supabase } from '../lib/supabase';
+import { verifyBearerUser } from '../lib/keyring';
 import { syncUserToMongoDB } from './sync-user';
 import { isDemoToken, applyDemoUser } from '../lib/demoAuth';
 
@@ -49,10 +49,10 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
       return;
     }
 
-    // Verify the token with Supabase
-    const { data: { user }, error } = await supabase.auth.getUser(token);
+    // Verify the token with Keyring (or Supabase for legacy sessions)
+    const user = await verifyBearerUser(token);
 
-    if (error || !user) {
+    if (!user) {
       res.status(401).json({
         success: false,
         error: 'Session invalid',
@@ -113,10 +113,10 @@ export async function optionalAuth(req: Request, res: Response, next: NextFuncti
       return;
     }
 
-    // Try to verify the token with Supabase
-    const { data: { user }, error } = await supabase.auth.getUser(token);
+    // Try to verify the token with Keyring (or Supabase for legacy sessions)
+    const user = await verifyBearerUser(token);
 
-    if (error || !user) {
+    if (!user) {
       // Token is invalid but auth is optional - continue without auth
       req.userId = undefined;
       req.user = undefined;
